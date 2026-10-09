@@ -1,0 +1,391 @@
+// =============================================================================
+// SvapNora database schema (PostgreSQL)
+//
+// Sensitive tables: AdminUser (credentials), AdminSession (session tokens),
+// AdminAuditLog (access trail), ContactSubmission (PII), Payment/PaymentEvent/
+// Refund (financial). These must only be read/written through authorized,
+// server-side code paths.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Authentication & authorization
+// -----------------------------------------------------------------------------
+
+enum AdminRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         AdminRole @default(VIEWER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions AdminSession[]
+  audit    AdminAuditLog[]
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  userId    String
+  /// SHA-256 hash of the opaque session token. The raw token is only ever
+  /// held in the client's HTTP-only cookie.
+  tokenHash String    @unique
+  ip        String?
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  lastSeenAt DateTime @default(now())
+
+  user AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  actor AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// -----------------------------------------------------------------------------
+// End-user accounts (public signup + admin-invited client portal)
+//
+// Deliberately separate from AdminUser: a person may be both an administrator
+// and an end user, and the two contexts use distinct session cookies so they
+// never share trust. ClientProject holds admin-managed portal content.
+// -----------------------------------------------------------------------------
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserSource {
+  SELF_SIGNUP
+  INVITED
+}
+
+enum UserTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum ProjectStatus {
+  PLANNED
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  ON_HOLD
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  name          String
+  company       String?
+  passwordHash  String
+  status        UserStatus @default(PENDING)
+  emailVerified Boolean    @default(false)
+  source        UserSource @default(SELF_SIGNUP)
+  lastLoginAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  sessions UserSession[]
+  tokens   UserToken[]
+  projects ClientProject[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UserSession {
+  id         String    @id @default(cuid())
+  userId     String
+  /// HMAC-SHA256 hash of the opaque session token. Raw token only in the cookie.
+  tokenHash  String    @unique
+  ip         String?
+  userAgent  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Single-use email-verification and password-reset tokens. Only the hash is
+/// stored; the raw value is delivered by email.
+model UserToken {
+  id        String        @id @default(cuid())
+  userId    String
+  type      UserTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([expiresAt])
+}
+
+/// Admin-managed portal content shown to a client on their dashboard.
+model ClientProject {
+  id          String        @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  status      ProjectStatus @default(PLANNED)
+  progress    Int           @default(0)
+  dueDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+// -----------------------------------------------------------------------------
+// Content management
+// -----------------------------------------------------------------------------
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum CapabilityStatus {
+  IMPLEMENTED
+  IN_PROGRESS
+  PLANNED
+  RESEARCH
+}
+
+/// Editable key/value content blocks for the public site (homepage copy,
+/// legal pages, contact details, announcements, etc.).
+model CompanyPage {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  title     String
+  summary   String?
+  /// Structured page body. Shape is validated at the application layer.
+  body      Json
+  status    ContentStatus @default(DRAFT)
+  updatedBy String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status])
+}
+
+model GlowLangFeature {
+  id          String           @id @default(cuid())
+  category    String
+  title       String
+  description String
+  status      CapabilityStatus @default(IMPLEMENTED)
+  sortOrder   Int              @default(0)
+  isPublished Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([category])
+  @@index([isPublished])
+}
+
+model CompanyMilestone {
+  id          String           @id @default(cuid())
+  phase       String
+  title       String
+  description String
+  status      CapabilityStatus @default(IMPLEMENTED)
+  sortOrder   Int              @default(0)
+  isPublished Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([phase])
+  @@index([isPublished])
+}
+
+model RoadmapItem {
+  id          String           @id @default(cuid())
+  category    String
+  title       String
+  description String
+  status      CapabilityStatus @default(PLANNED)
+  sortOrder   Int              @default(0)
+  isPublished Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([category])
+  @@index([status])
+  @@index([isPublished])
+}
+
+// -----------------------------------------------------------------------------
+// Contact submissions (contains PII — access controlled)
+// -----------------------------------------------------------------------------
+
+enum ContactCategory {
+  GENERAL
+  TECHNICAL
+  PARTNERSHIP
+  COLLABORATION
+}
+
+enum ContactStatus {
+  NEW
+  READ
+  ARCHIVED
+}
+
+model ContactSubmission {
+  id        String          @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  category  ContactCategory @default(GENERAL)
+  message   String
+  status    ContactStatus   @default(NEW)
+  ip        String?
+  userAgent String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([email])
+}
+
+// -----------------------------------------------------------------------------
+// Payments (financial — access controlled, audited)
+// -----------------------------------------------------------------------------
+
+enum PaymentStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+  CANCELLED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum ReconciliationStatus {
+  UNRECONCILED
+  RECONCILED
+  DISCREPANCY
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model Payment {
+  id                  String               @id @default(cuid())
+  provider            String               @default("demo")
+  /// Provider transaction id. Unique per provider to prevent duplicates.
+  providerTxnId       String
+  customerName        String?
+  customerEmail       String?
+  orderRef            String?
+  /// Amount in integer minor units (e.g. cents). Never use floats for money.
+  amountMinor         BigInt
+  currency            String
+  method              String?
+  status              PaymentStatus        @default(PENDING)
+  refundedAmountMinor BigInt               @default(0)
+  reconciliation      ReconciliationStatus @default(UNRECONCILED)
+  metadata            Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  events  PaymentEvent[]
+  refunds Refund[]
+
+  @@unique([provider, providerTxnId])
+  @@index([status])
+  @@index([currency])
+  @@index([createdAt])
+  @@index([customerEmail])
+}
+
+/// Raw provider webhook / lifecycle events. providerEventId is unique so that
+/// retried webhooks are processed idempotently.
+model PaymentEvent {
+  id              String    @id @default(cuid())
+  providerEventId String    @unique
+  provider        String
+  type            String
+  signatureValid  Boolean   @default(false)
+  payload         Json
+  paymentId       String?
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([paymentId])
+  @@index([type])
+  @@index([receivedAt])
+}
+
+model Refund {
+  id             String       @id @default(cuid())
+  paymentId      String
+  amountMinor    BigInt
+  reason         String?
+  providerRefundId String?
+  status         RefundStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([providerRefundId])
+  @@index([paymentId])
+  @@index([status])
+}
