@@ -44,6 +44,11 @@ services:
       - key: CORS_ORIGINS
         value: https://svapnora.onrender.com
 
+      # Used by the client build for canonical / social meta tags. Change this
+      # to the custom domain once it is connected, then redeploy.
+      - key: VITE_SITE_URL
+        value: https://svapnora.onrender.com
+
       # Render generates a strong random value automatically.
       - key: SESSION_SECRET
         generateValue: true
