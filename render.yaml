@@ -8,6 +8,12 @@
 # Deploy: Render Dashboard -> New -> Blueprint -> pick this repo -> Apply.
 # After the first deploy, copy the service URL into APP_ORIGIN / API_ORIGIN /
 # CORS_ORIGINS below (or in the dashboard) and redeploy.
+#
+# Free-tier notes that shape this file:
+#   * Outbound SMTP (ports 25/465/587) is blocked, so email uses the Brevo HTTP
+#     API over HTTPS instead of SMTP (EMAIL_PROVIDER=brevo).
+#   * There is no shell access or one-off jobs, so the administrator is created
+#     automatically during start (safe to run on every deploy).
 # =============================================================================
 
 services:
@@ -15,11 +21,11 @@ services:
     name: svapnora
     runtime: node
     plan: free
-    region: oregon
+    region: singapore
     branch: main
     autoDeploy: true
     buildCommand: npm install --include=dev && npm run db:generate && npm run build
-    startCommand: npm run db:deploy && npm start
+    startCommand: npm run db:deploy && npm run admin:create && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -43,12 +49,13 @@ services:
         generateValue: true
 
       # Supabase connection string — set in the dashboard (kept secret).
-      # Use the "Connection pooling" URI (port 6543) with ?pgbouncer=true for
-      # serverless-friendly connections.
+      # Use the "Session pooler" URI (port 5432) for a long-running server:
+      # it works for both Prisma migrations and runtime queries.
       - key: DATABASE_URL
         sync: false
 
-      # Optional: used only by `npm run admin:create` (run once after deploy).
+      # Used by `npm run admin:create` (runs automatically on each deploy and
+      # only creates the administrator if it does not already exist).
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_NAME
@@ -58,9 +65,13 @@ services:
       - key: ADMIN_ROLE
         value: OWNER
 
-      # Email: set EMAIL_PROVIDER=smtp and add Brevo values to send real email.
+      # Email via the Brevo HTTP API (works despite blocked SMTP ports).
       - key: EMAIL_PROVIDER
-        value: none
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       - key: CONTACT_TO_EMAIL
         sync: false
 

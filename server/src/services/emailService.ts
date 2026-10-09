@@ -4,6 +4,17 @@ import { logger } from "../logger";
 
 let transporter: Transporter | null = null;
 
+/**
+ * True when an email transport is configured. Supports SMTP (for hosts that
+ * allow outbound SMTP) and the Brevo HTTP API (for hosts such as Render's free
+ * tier that block outbound SMTP ports 25/465/587 but allow HTTPS).
+ */
+function emailTransportReady(): boolean {
+  if (env.EMAIL_PROVIDER === "smtp") return Boolean(env.SMTP_HOST);
+  if (env.EMAIL_PROVIDER === "brevo") return Boolean(env.BREVO_API_KEY);
+  return false;
+}
+
 function getTransporter(): Transporter | null {
   if (env.EMAIL_PROVIDER !== "smtp") return null;
   if (transporter) return transporter;
@@ -20,30 +31,87 @@ function getTransporter(): Transporter | null {
   return transporter;
 }
 
-export function isEmailConfigured(): boolean {
-  return env.EMAIL_PROVIDER === "smtp" && Boolean(env.SMTP_HOST) && Boolean(env.CONTACT_TO_EMAIL);
+/** Parse a `Name <email@host>` or bare `email@host` sender string. */
+function parseFrom(from: string): { name?: string; email: string } {
+  const match = from.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (match) return { name: match[1] || undefined, email: (match[2] ?? "").trim() };
+  return { email: from.trim() };
 }
 
-/** True when SMTP is usable for transactional mail (no contact inbox needed). */
-export function isTransactionalEmailConfigured(): boolean {
-  return env.EMAIL_PROVIDER === "smtp" && Boolean(env.SMTP_HOST);
-}
-
-async function sendMail(message: {
+export interface MailMessage {
   to: string;
   subject: string;
   text: string;
   html?: string;
-}): Promise<boolean> {
+  replyTo?: string;
+}
+
+/** Deliver via the Brevo transactional email HTTP API (port 443). */
+async function sendViaBrevo(message: MailMessage): Promise<boolean> {
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": env.BREVO_API_KEY,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        sender: parseFrom(env.EMAIL_FROM),
+        to: [{ email: message.to }],
+        subject: message.subject,
+        textContent: message.text,
+        ...(message.html ? { htmlContent: message.html } : {}),
+        ...(message.replyTo ? { replyTo: { email: message.replyTo } } : {}),
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      logger.error(
+        { status: response.status, body, subject: message.subject },
+        "failed to send email via Brevo",
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.error({ err, subject: message.subject }, "failed to send email via Brevo");
+    return false;
+  }
+}
+
+/** Single delivery entry point that dispatches to the configured transport. */
+async function deliver(message: MailMessage): Promise<boolean> {
+  if (env.EMAIL_PROVIDER === "brevo") return sendViaBrevo(message);
   const tx = getTransporter();
   if (!tx) return false;
   try {
-    await tx.sendMail({ from: env.EMAIL_FROM, ...message });
+    await tx.sendMail({
+      from: env.EMAIL_FROM,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+      replyTo: message.replyTo,
+      html: message.html,
+    });
     return true;
   } catch (err) {
     logger.error({ err, subject: message.subject }, "failed to send email");
     return false;
   }
+}
+
+export function isEmailConfigured(): boolean {
+  return emailTransportReady() && Boolean(env.CONTACT_TO_EMAIL);
+}
+
+/** True when a transport is usable for transactional mail (no inbox needed). */
+export function isTransactionalEmailConfigured(): boolean {
+  return emailTransportReady();
+}
+
+async function sendMail(message: MailMessage): Promise<boolean> {
+  return deliver(message);
 }
 
 export interface ContactEmail {
@@ -59,29 +127,20 @@ export interface ContactEmail {
  * email is not configured or delivery fails (the submission is always stored).
  */
 export async function sendContactNotification(payload: ContactEmail): Promise<boolean> {
-  const tx = getTransporter();
-  if (!tx || !env.CONTACT_TO_EMAIL) return false;
-
-  try {
-    await tx.sendMail({
-      from: env.EMAIL_FROM,
-      to: env.CONTACT_TO_EMAIL,
-      replyTo: payload.email,
-      subject: `[SvapNora Contact] ${payload.subject}`,
-      text: [
-        `New contact submission`,
-        `Name: ${payload.name}`,
-        `Email: ${payload.email}`,
-        `Category: ${payload.category}`,
-        "",
-        payload.message,
-      ].join("\n"),
-    });
-    return true;
-  } catch (err) {
-    logger.error({ err }, "failed to send contact notification email");
-    return false;
-  }
+  if (!emailTransportReady() || !env.CONTACT_TO_EMAIL) return false;
+  return deliver({
+    to: env.CONTACT_TO_EMAIL,
+    replyTo: payload.email,
+    subject: `[SvapNora Contact] ${payload.subject}`,
+    text: [
+      `New contact submission`,
+      `Name: ${payload.name}`,
+      `Email: ${payload.email}`,
+      `Category: ${payload.category}`,
+      "",
+      payload.message,
+    ].join("\n"),
+  });
 }
 
 export async function sendVerificationEmail(to: string, name: string, url: string): Promise<boolean> {

@@ -36,12 +36,14 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().optional(),
   ADMIN_ROLE: z.enum(["OWNER", "ADMIN", "EDITOR", "VIEWER"]).default("OWNER"),
 
-  EMAIL_PROVIDER: z.enum(["none", "smtp"]).default("none"),
+  EMAIL_PROVIDER: z.enum(["none", "smtp", "brevo"]).default("none"),
   SMTP_HOST: z.string().default(""),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_SECURE: booleanish.default(false),
   SMTP_USER: z.string().default(""),
   SMTP_PASS: z.string().default(""),
+  // Brevo transactional email HTTP API (works where outbound SMTP is blocked).
+  BREVO_API_KEY: z.string().default(""),
   EMAIL_FROM: z.string().default("SvapNora <no-reply@example.com>"),
   CONTACT_TO_EMAIL: z.string().default(""),
 
