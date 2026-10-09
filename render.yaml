@@ -1,0 +1,70 @@
+# =============================================================================
+# Render Blueprint — SvapNora (free tier)
+#
+# One free Web Service runs the API and serves the built React client from the
+# same origin. The database is external (Supabase free PostgreSQL) and supplied
+# through the DATABASE_URL secret.
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> pick this repo -> Apply.
+# After the first deploy, copy the service URL into APP_ORIGIN / API_ORIGIN /
+# CORS_ORIGINS below (or in the dashboard) and redeploy.
+# =============================================================================
+
+services:
+  - type: web
+    name: svapnora
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install --include=dev && npm run db:generate && npm run build
+    startCommand: npm run db:deploy && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: TRUST_PROXY
+        value: "true"
+
+      # Replace with the URL Render assigns (e.g. https://svapnora.onrender.com),
+      # or your custom domain once it is connected.
+      - key: APP_ORIGIN
+        value: https://svapnora.onrender.com
+      - key: API_ORIGIN
+        value: https://svapnora.onrender.com
+      - key: CORS_ORIGINS
+        value: https://svapnora.onrender.com
+
+      # Render generates a strong random value automatically.
+      - key: SESSION_SECRET
+        generateValue: true
+
+      # Supabase connection string — set in the dashboard (kept secret).
+      # Use the "Connection pooling" URI (port 6543) with ?pgbouncer=true for
+      # serverless-friendly connections.
+      - key: DATABASE_URL
+        sync: false
+
+      # Optional: used only by `npm run admin:create` (run once after deploy).
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_NAME
+        value: Administrator
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_ROLE
+        value: OWNER
+
+      # Email: set EMAIL_PROVIDER=smtp and add Brevo values to send real email.
+      - key: EMAIL_PROVIDER
+        value: none
+      - key: CONTACT_TO_EMAIL
+        sync: false
+
+      - key: PAYMENT_PROVIDER
+        value: none
+      - key: PAYMENTS_DEMO_MODE
+        value: "true"

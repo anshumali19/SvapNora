@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: svapnora-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: svapnora
+      POSTGRES_PASSWORD: svapnora
+      POSTGRES_DB: svapnora
+    ports:
+      - "5432:5432"
+    volumes:
+      - svapnora_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U svapnora -d svapnora"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  svapnora_pgdata:

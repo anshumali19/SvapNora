@@ -1,0 +1,31 @@
+{
+  "name": "svapnora",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Official SvapNora website and GlowLang developer platform.",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "build": "npm run build --workspace server && npm run build --workspace client",
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace client",
+    "lint": "npm run lint --workspace server && npm run lint --workspace client",
+    "test": "npm run test --workspace server",
+    "start": "npm run start --workspace server",
+    "db:generate": "npm run db:generate --workspace server",
+    "db:migrate": "npm run db:migrate --workspace server",
+    "db:deploy": "npm run db:deploy --workspace server",
+    "db:seed": "npm run db:seed --workspace server",
+    "admin:create": "npm run admin:create --workspace server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
