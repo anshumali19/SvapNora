@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0a0a0c" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta
+      name="description"
+      content="SvapNora builds GlowLang, a programming language engineered from the ground up in C — expressive syntax with a performance-oriented runtime, JIT, AI/ML tooling and a growing developer ecosystem."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SvapNora" />
+    <meta property="og:title" content="SvapNora — A new language for the way we think about code" />
+    <meta
+      property="og:description"
+      content="GlowLang combines readable, expressive syntax with a performance-oriented runtime built from scratch in C."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>SvapNora — Engineering GlowLang from the ground up</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("svapnora-theme");
+          if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
